@@ -1,83 +1,324 @@
-# Raksha (रक्षा) — AI WhatsApp Safety & Emergency Response Bot
+```markdown
+# Python AI WhatsApp Bot (Disaster & Emergency Response)
 
-**Raksha** is an intelligent, real-time personal safety and emergency support assistant built on the **Meta WhatsApp Cloud API**, **Python**, **Flask**, and **OpenAI**. It serves as an accessible lifeline directly within WhatsApp—enabling users to trigger emergency alerts, share real-time location details, and receive safety assistance through conversational AI.
+An intelligent, real-time WhatsApp bot built with **Python**, **Flask**, the **Meta WhatsApp Cloud API**, and **Google Gemini 2.5 Flash**.
 
----
-
-## Table of Contents
-
-- [About Raksha](#about-raksha)
-- [Key Features](#key-features)
-- [Architecture & Tech Stack](#architecture--tech-stack)
-- [Prerequisites](#prerequisites)
-- [Project Structure](#project-structure)
-- [Setup & Installation](#setup--installation)
-- [Step-by-Step Configuration](#step-by-step-configuration)
-  - [1. Meta WhatsApp Cloud API Setup](#1-meta-whatsapp-cloud-api-setup)
-  - [2. Environment Variables](#2-environment-variables)
-  - [3. Run Application Locally](#3-run-application-locally)
-  - [4. Expose Webhook via ngrok](#4-expose-webhook-via-ngrok)
-  - [5. Verify & Subscribe to Webhook](#5-verify--subscribe-to-webhook)
-- [Security & Webhook Validation](#security--webhook-validation)
-- [AI Integration](#ai-integration)
-- [Production Deployment & Migration](#production-deployment--migration)
-- [Contributing & License](#contributing--license)
+This system implements an automated crisis triage pipeline. When an individual texts `HELP`, a finite state machine (FSM) takes over to systematically gather location coordinates, injury reports, and headcounts. Upon completion, it dispatches incident notifications across multiple channels (Admin, Responders, and Dashboard APIs) while maintaining grounded conversational AI support using Google Gemini.
 
 ---
 
-## About Raksha
+## Architecture & System Flow
 
-The name **Raksha** translates to *protection*. During critical moments, navigating complex mobile applications can be difficult or unfeasible. WhatsApp offers an immediate, low-bandwidth channel that most users already rely on daily. Raksha leverages WhatsApp to:
-- Act on distress keywords (e.g., `EMERGENCY`, `HELP`, `SOS`).
-- Provide AI-guided safety instructions, de-escalation tips, and emergency helpline details.
-- Securely receive and forward live coordinates or status updates to emergency contacts.
+
+```
+
+```
+                         [ WhatsApp User ]
+                                 │
+                                 │ Inbound Webhook Event
+                                 ▼
+                    [ Meta WhatsApp Cloud API ]
+                                 │
+                                 │ HTTPS POST
+                                 ▼
+                      [ Flask App (run.py) ]
+                                 │
+                                 ▼
+                    [ POST /webhook (views.py) ]
+                                 │
+                                 ▼
+                      [ @signature_required ]
+                     HMAC-SHA256 vs APP_SECRET
+                                 │
+              ┌──────────────────┴──────────────────┐
+              │ Valid Signature?                    │
+              ├──────────────────┬──────────────────┤
+              │ No               │ Yes
+              ▼                  ▼
+     [ HTTP 403 Forbidden ]  [ Inbound Filter ]
+                                 │
+                                 ├─ Status Updates (sent/delivered/read) ──► HTTP 200 (Drop)
+                                 ├─ Seen Message IDs (Deduplication) ─────► Drop
+                                 └─ Valid User Message
+                                         │
+                                         ▼
+                             [ Triage State Machine ]
+                              (whatsapp_utils.py)
+                                         │
+                ┌────────────────────────┴────────────────────────┐
+                │                                                 │
+ [ Standard / Idle Flow ]                             [ Emergency Flow: "HELP" ]
+                │                                                 │
+                ▼                                                 ▼
+      [ Gemini 2.5 Flash ]                              [ FSM Telemetry Intake ]
+      - Line overview                                   1. awaiting_location (GPS / PIN / Text)
+      - Informs user to send HELP                       2. awaiting_injury (yes / no / text)
+                │                                       3. awaiting_people_count (count)
+                │                                                 │
+                │                                                 ▼
+                │                                       [ Telemetry Finalized ]
+                │                                                 │
+                │                       ┌─────────────────────────┼─────────────────────────┐
+                │                       │                         │                         │
+                │                       ▼                         ▼                         ▼
+                │               [ Admin Dispatch ]      [ Responder Broadcast ]   [ Dashboard API Sync ]
+                │               - Full victim dossier   - Sanitized notification  - JSON telemetry
+                │               - Direct contact WAID   - Non-PII broadcast       - Timestamped POST
+                │               - Google Maps pin       - Directs to dashboard    - Lat / Lon / Counts
+                │                       │                         │                         │
+                │                       └─────────────────────────┼─────────────────────────┘
+                │                                                 │
+                ▼                                                 ▼
+  [ Meta Graph API Endpoint ] ◄───────────────────────────────────┘
+
+```
+
+```
 
 ---
 
 ## Key Features
 
-- **WhatsApp Cloud API Integration**: Direct interaction via Meta's official Graph API.
-- **Flask Webhook Backend**: Lightweight, modular webhook event receiver.
-- **HMAC-SHA256 Payload Validation**: Enforces cryptographic request signing (`X-Hub-Signature-256`) to reject forged incoming payloads.
-- **Intelligent Safety Responses**: Powered by OpenAI to process conversational text, deliver step-by-step assistance, or route emergency queries.
-- **Extensible Emergency Routing**: Modular service structure allowing integration with SMS gateways, Twilio, or emergency dispatch services.
+- **Automated Crisis State Machine**:
+  - Step-by-step state progression: `awaiting_location` → `awaiting_injury` → `awaiting_people_count` → `location_received`.
+  - Parses native WhatsApp GPS location objects (`latitude` & `longitude`) and unstructured text addresses (regex-based 6-digit Indian PIN codes and landmark keywords like *colony, nagar, road, sector, near*).
+  - NLP normalizers for injury detection (`yes`, `bleeding`, `hurt`, `no`, `fine`) and headcount extraction.
+- **Dual-Persona AI via Google Gemini 2.5 Flash**:
+  - **Emergency Mode**: Keeps responses strictly to 1–2 short, reassuring sentences. System prompts explicitly forbid hallucinated rescue ETAs or responder claims.
+  - **General Mode**: Directs at-risk users to reply `HELP` and provides disaster helpline guidance.
+  - Context retention sliding window: Feeds the last 6 conversation turns into Gemini for situational continuity.
+- **Multi-Tiered Alerting & Privacy Protection**:
+  - **Administrator (`ADMIN_NUMBER`)**: Receives the complete incident dossier, victim profile name, direct phone number, headcount, injury status, and an interactive Google Maps navigational pin.
+  - **Field Responders (`RESPONDER_NUMBERS`)**: Broadcasts a privacy-preserving alert to a comma-separated list of responder numbers directing them to check the central system without exposing victim PII.
+  - **Incident Dashboard (`DASHBOARD_API_URL`)**: Pushes an HTTP POST JSON payload to a centralized operations monitor.
+- **Security & Reliability**:
+  - Validates all incoming payloads against `APP_SECRET` using `HMAC-SHA256` digest checks (`X-Hub-Signature-256`).
+  - Automated handshake verification for Meta's `GET /webhook` challenge.
+  - In-memory message ID deduplication (`_seen_message_ids`) prevents redundant processing on network retries.
 
 ---
 
-## Architecture & Tech Stack
+## Tech Stack
 
 - **Language**: Python 3.10+
-- **Framework**: Flask
-- **External APIs**: Meta Graph API (WhatsApp Cloud API v18.0+), OpenAI Assistants / Chat API
-- **Tunneling / Development**: ngrok
-- **Security**: Cryptographic verification via HMAC SHA-256
-
----
-
-## Prerequisites
-
-1. **Meta Developer Account**: Register at [developers.facebook.com](https://developers.facebook.com/).
-2. **Meta Business App**: Create a business app and add the **WhatsApp** product.
-3. **OpenAI API Key**: Create an API key at [platform.openai.com](https://platform.openai.com/).
-4. **ngrok Account**: Required for local webhook development with static domains.
-5. **Python 3.10+** and `pip` installed.
+- **Web Framework**: Flask (Blueprints, Application Factory)
+- **AI / LLM Engine**: Google Generative AI SDK (`gemini-2.5-flash`)
+- **API Integration**: Meta Graph API (WhatsApp Cloud API `v18.0`+)
+- **Security**: HMAC SHA-256 (`hashlib`, `hmac`)
+- **HTTP Client**: Requests
 
 ---
 
 ## Project Structure
 
 ```text
-raksha/
 ├── app/
-│   ├── __init__.py
+│   ├── __init__.py                # Flask application factory (create_app)
+│   ├── config.py                  # Configuration loader & logging configuration
 │   ├── decorators/
-│   │   └── security.py        # Webhook signature & token verification
-│   ├── services/
-│   │   └── openai_service.py  # AI query handler and prompt logic
+│   │   └── security.py            # @signature_required (HMAC-SHA256 validation)
 │   ├── utils/
-│   │   └── whatsapp_utils.py  # Message formatting, payload processing, sender
-│   └── views.py               # Flask webhook endpoints (GET & POST)
-├── .env.example
-├── requirements.txt
-├── run.py                     # Entry point
-└── README.md
+│   │   └── whatsapp_utils.py      # Triage state machine, Gemini logic & Meta API client
+│   └── views.py                   # Blueprint for GET & POST /webhook
+├── test_gemini.py                 # Standalone Gemini SDK verification script
+├── .env.example                   # Environment configuration template
+├── requirements.txt               # Application dependencies
+└── run.py                         # Application entrypoint (starts threaded Flask app)
+
+```
+
+---
+
+## Configuration & Environment Variables
+
+All settings are loaded into the Flask context via `app/config.py`. Create a `.env` file in the root directory:
+
+```bash
+cp .env.example .env
+
+```
+
+Configure the following variables:
+
+```env
+# Meta WhatsApp Cloud API
+ACCESS_TOKEN=your_meta_system_user_token
+APP_ID=your_meta_app_id
+APP_SECRET=your_meta_app_secret
+VERSION=v18.0
+PHONE_NUMBER_ID=your_whatsapp_phone_number_id
+YOUR_PHONE_NUMBER=your_test_phone_number
+RECIPIENT_WAID=your_default_recipient_phone_number
+
+# Webhook Handshake Verification
+VERIFY_TOKEN=your_custom_verification_token_string
+
+# Google Gemini API
+GEMINI_API_KEY=your_gemini_api_key
+
+# Incident Alerting & Multi-Responder Topology
+# Admin receives complete dossier with victim PII and Google Maps link
+ADMIN_NUMBER=919876543210
+
+# Responders receive sanitized alerts (comma-separated list)
+RESPONDER_NUMBERS=919876543211,919876543212,919876543213
+
+# Central Monitoring Dashboard Integration (Optional)
+DASHBOARD_API_URL=[https://your-incident-dashboard.com/api/v1/incidents](https://your-incident-dashboard.com/api/v1/incidents)
+
+```
+
+---
+
+## Installation & Setup
+
+### 1. Clone the Repository
+
+```bash
+git clone [https://github.com/your-username/your-repo-name.git](https://github.com/your-username/your-repo-name.git)
+cd your-repo-name
+
+```
+
+### 2. Set Up Virtual Environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+```
+
+### 3. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+
+```
+
+*(Ensure `requirements.txt` includes: `flask`, `requests`, `python-dotenv`, `google-generativeai`)*
+
+### 4. Verify Gemini API Connection (Optional)
+
+Run the standalone diagnostic script to ensure your Gemini API key is valid:
+
+```bash
+python test_gemini.py
+
+```
+
+### 5. Launch the Server
+
+```bash
+python run.py
+
+```
+
+The server will start listening on `http://0.0.0.0:8000`.
+
+---
+
+## Meta Webhook Configuration
+
+Meta requires an active public HTTPS endpoint to deliver webhook notifications.
+
+### 1. Launch ngrok Tunnel
+
+```bash
+ngrok http 8000 --domain your-domain.ngrok-free.app
+
+```
+
+### 2. Configure Meta Developer Portal
+
+1. Go to the [Meta App Dashboard](https://developers.facebook.com/apps/) > **WhatsApp** > **Configuration**.
+2. Under **Webhook**, click **Edit**:
+* **Callback URL**: `https://your-domain.ngrok-free.app/webhook`
+* **Verify Token**: Must match the `VERIFY_TOKEN` in your `.env`.
+
+
+3. Click **Verify and Save**. Your terminal will log:
+```text
+INFO:root:WEBHOOK_VERIFIED
+
+```
+
+
+4. Click **Manage** under Webhook Fields and check the box for **`messages`**.
+
+---
+
+## Triage State Machine Reference
+
+| Stage | Trigger / Input | State | Action Taken |
+| --- | --- | --- | --- |
+| **Idle** | Standard text or question | `None` | Evaluated through standard Gemini 2.5 Flash prompt. |
+| **Trigger** | Starts with `"HELP"` | `awaiting_location` | Initializes session state; prompts user for live GPS pin or address. |
+| **Location** | Sends GPS location pin or text address | `awaiting_injury` | Extracts coordinates or address text; prompts for injury status. |
+| **Injuries** | `"Yes"`, `"Bleeding"`, `"No"`, etc. | `awaiting_people_count` | Normalizes injury flag; prompts for number of affected persons. |
+| **Headcount** | Number (e.g., `"4"`, `"just me"`) | `location_received` | Fires admin dossier, responder broadcast, and dashboard JSON sync. |
+| **Active De-escalation** | Follow-up text | `location_received` | Runs calm, 1-2 sentence crisis Gemini prompt with chat history. |
+
+### Dispatch Formats
+
+#### 1. Administrator Dossier (`ADMIN_NUMBER`)
+
+```text
+NEW EMERGENCY
+From: John Doe (+919876543210)
+Location: [https://maps.google.com/?q=17.4374,78.3842](https://maps.google.com/?q=17.4374,78.3842)
+Injured: yes
+People: 4
+
+```
+
+#### 2. Responder Broadcast (`RESPONDER_NUMBERS`)
+
+```text
+New emergency reported. Check the admin/dashboard for full details.
+
+```
+
+#### 3. Dashboard Webhook Payload (`DASHBOARD_API_URL`)
+
+```json
+{
+  "name": "John Doe",
+  "phone": "919876543210",
+  "latitude": 17.4374,
+  "longitude": 78.3842,
+  "address_text": null,
+  "injured": "yes",
+  "people_count": 4,
+  "timestamp": "2026-09-09T22:30:00.000000"
+}
+
+```
+
+---
+
+## Security Implementation
+
+### Webhook Verification Handshake
+
+Meta performs an initial `GET` request containing `hub.mode`, `hub.verify_token`, and `hub.challenge`. The server validates `hub.verify_token` against `current_app.config["VERIFY_TOKEN"]` and returns `hub.challenge` with status **`200 OK`**.
+
+### Request Signature Verification
+
+Incoming `POST` webhook requests are intercepted by `@signature_required` in `app/decorators/security.py`:
+
+* Extracts the signature hash from the `X-Hub-Signature-256` header (stripping the `sha256=` prefix).
+* Generates an expected HMAC-SHA256 signature using the application's `APP_SECRET` and the raw request body.
+* Uses constant-time string comparison (`hmac.compare_digest`) to prevent timing attacks. Requests with invalid signatures are rejected with **`403 Forbidden`**.
+
+---
+
+## Production Deployment Checklist
+
+* [ ] **WSGI Server**: Run behind Gunicorn (`gunicorn -w 4 -b 0.0.0.0:8000 run:app`).
+* [ ] **State Persistence**: For multi-worker deployments, migrate `active_emergencies = {}` and `_seen_message_ids` from in-memory dictionaries to **Redis** to ensure state persistence across worker threads.
+* [ ] **Meta System User Token**: Ensure your access token is generated from a System User with permanent/60-day validity to avoid mid-operation auth failures.
+* [ ] **Reverse Proxy**: Configure Nginx with SSL termination via Let's Encrypt for direct production domain handling.
+
+```
+
+```
