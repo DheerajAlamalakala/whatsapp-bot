@@ -1,4 +1,6 @@
 
+
+```markdown
 # Python AI WhatsApp Bot (Disaster & Emergency Response)
 
 An intelligent, real-time WhatsApp bot built with **Python**, **Flask**, the **Meta WhatsApp Cloud API**, and **Google Gemini 2.5 Flash**.
@@ -6,7 +8,11 @@ An intelligent, real-time WhatsApp bot built with **Python**, **Flask**, the **M
 This system implements an automated crisis triage pipeline. When an individual texts `HELP`, a finite state machine (FSM) takes over to systematically gather location coordinates, injury reports, and headcounts. Upon completion, it dispatches incident notifications across multiple channels (Admin, Responders, and Dashboard APIs) while maintaining grounded conversational AI support using Google Gemini.
 
 ---
-                              [ WhatsApp User ]
+
+## Architecture & System Flow
+
+```text
+                             [ WhatsApp User ]
                                      │
                                      │ Inbound Webhook Event
                                      ▼
@@ -43,13 +49,13 @@ This system implements an automated crisis triage pipeline. When an individual t
         [ msg_type == "text" ]                                   [ msg_type == "location" ]
                │                                                           │
         ┌──────┴──────────────────────┐                                    ▼
-        │                             │                         Extract lat/lon pin
+        │                             │                           Extract lat/lon pin
  [ "HELP" / Active Emergency ]  [ Idle / General ]                         │
-        │                             │                         Update emergency record
-        ▼                             ▼                         Prompt for injuries
+        │                             │                           Update emergency record
+        ▼                             ▼                           Prompt for injuries
 [ Hardcoded FSM Steps ]       [ Gemini 2.5 Flash ]                         │
 1. awaiting_location          (General Mode)                               ▼
-2. awaiting_injury                    │                       [ Send via Meta API ]
+2. awaiting_injury                    │                           [ Send via Meta API ]
 3. awaiting_people_count              │
         │                             │
         ├─ Ongoing chat after intake? │
@@ -66,35 +72,47 @@ This system implements an automated crisis triage pipeline. When an individual t
 HTTP POST to                  WhatsApp alerts via            "Responders alerted..."
 DASHBOARD_API_URL             Meta Graph API                 via Meta Graph API
 
+```
+
+---
+
 ## Key Features
 
-- **Automated Crisis State Machine**:
-  - Step-by-step state progression: `awaiting_location` → `awaiting_injury` → `awaiting_people_count` → `location_received`.
-  - Parses native WhatsApp GPS location objects (`latitude` & `longitude`) and unstructured text addresses (regex-based 6-digit Indian PIN codes and landmark keywords like *colony, nagar, road, sector, near*).
-  - NLP normalizers for injury detection (`yes`, `bleeding`, `hurt`, `no`, `fine`) and headcount extraction.
-- **Dual-Persona AI via Google Gemini 2.5 Flash**:
-  - **Emergency Mode**: Keeps responses strictly to 1–2 short, reassuring sentences. System prompts explicitly forbid hallucinated rescue ETAs or responder claims.
-  - **General Mode**: Directs at-risk users to reply `HELP` and provides disaster helpline guidance.
-  - Context retention sliding window: Feeds the last 6 conversation turns into Gemini for situational continuity.
-- **Multi-Tiered Alerting & Privacy Protection**:
-  - **Administrator (`ADMIN_NUMBER`)**: Receives the complete incident dossier, victim profile name, direct phone number, headcount, injury status, and an interactive Google Maps navigational pin.
-  - **Field Responders (`RESPONDER_NUMBERS`)**: Broadcasts a privacy-preserving alert to a comma-separated list of responder numbers directing them to check the central system without exposing victim PII.
-  - **Incident Dashboard (`DASHBOARD_API_URL`)**: Pushes an HTTP POST JSON payload to a centralized operations monitor.
-- **Security & Reliability**:
-  - Validates all incoming payloads against `APP_SECRET` using `HMAC-SHA256` digest checks (`X-Hub-Signature-256`).
-  - Automated handshake verification for Meta's `GET /webhook` challenge.
-  - In-memory message ID deduplication (`_seen_message_ids`) prevents redundant processing on network retries.
+* **Automated Crisis State Machine**:
+* Step-by-step state progression: `awaiting_location` → `awaiting_injury` → `awaiting_people_count` → `location_received`.
+* Parses native WhatsApp GPS location objects (`latitude` & `longitude`) and unstructured text addresses (regex-based 6-digit Indian PIN codes and landmark keywords like *colony, nagar, road, sector, near*).
+* NLP normalizers for injury detection (`yes`, `bleeding`, `hurt`, `no`, `fine`) and headcount extraction.
+
+
+* **Dual-Persona AI via Google Gemini 2.5 Flash**:
+* **Emergency Mode**: Keeps responses strictly to 1–2 short, reassuring sentences. System prompts explicitly forbid hallucinated rescue ETAs or responder claims.
+* **General Mode**: Directs at-risk users to reply `HELP` and provides disaster helpline guidance.
+* Context retention sliding window: Feeds the last 6 conversation turns into Gemini for situational continuity.
+
+
+* **Multi-Tiered Alerting & Privacy Protection**:
+* **Administrator (`ADMIN_NUMBER`)**: Receives the complete incident dossier, victim profile name, direct phone number, headcount, injury status, and an interactive Google Maps navigational pin.
+* **Field Responders (`RESPONDER_NUMBERS`)**: Broadcasts a privacy-preserving alert to a comma-separated list of responder numbers directing them to check the central system without exposing victim PII.
+* **Incident Dashboard (`DASHBOARD_API_URL`)**: Pushes an HTTP POST JSON payload to a centralized operations monitor.
+
+
+* **Security & Reliability**:
+* Validates all incoming payloads against `APP_SECRET` using `HMAC-SHA256` digest checks (`X-Hub-Signature-256`).
+* Automated handshake verification for Meta's `GET /webhook` challenge.
+* In-memory message ID deduplication (`_seen_message_ids`) prevents redundant processing on network retries.
+
+
 
 ---
 
 ## Tech Stack
 
-- **Language**: Python 3.10+
-- **Web Framework**: Flask (Blueprints, Application Factory)
-- **AI / LLM Engine**: Google Generative AI SDK (`gemini-2.5-flash`)
-- **API Integration**: Meta Graph API (WhatsApp Cloud API `v18.0`+)
-- **Security**: HMAC SHA-256 (`hashlib`, `hmac`)
-- **HTTP Client**: Requests
+* **Language**: Python 3.10+
+* **Web Framework**: Flask (Blueprints, Application Factory)
+* **AI / LLM Engine**: Google Generative AI SDK (`gemini-2.5-flash`)
+* **API Integration**: Meta Graph API (WhatsApp Cloud API `v18.0`+)
+* **Security**: HMAC SHA-256 (`hashlib`, `hmac`)
+* **HTTP Client**: Requests
 
 ---
 
