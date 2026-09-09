@@ -1,4 +1,4 @@
-```markdown
+
 # Python AI WhatsApp Bot (Disaster & Emergency Response)
 
 An intelligent, real-time WhatsApp bot built with **Python**, **Flask**, the **Meta WhatsApp Cloud API**, and **Google Gemini 2.5 Flash**.
@@ -10,9 +10,7 @@ This system implements an automated crisis triage pipeline. When an individual t
 ## Architecture & System Flow
 
 
-```
 
-```
                          [ WhatsApp User ]
                                  │
                                  │ Inbound Webhook Event
@@ -71,9 +69,7 @@ This system implements an automated crisis triage pipeline. When an individual t
                 ▼                                                 ▼
   [ Meta Graph API Endpoint ] ◄───────────────────────────────────┘
 
-```
 
-```
 
 ---
 
