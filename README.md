@@ -1,5 +1,4 @@
 
-
 ```markdown
 # Python AI WhatsApp Bot (Disaster & Emergency Response)
 
