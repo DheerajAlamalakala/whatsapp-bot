@@ -196,6 +196,7 @@ def _notify_dashboard(wa_id: str, record: dict) -> None:
     else:
         loc_line = record["address_text"] or "not provided"
 
+    # Admin gets the FULL alert with victim details
     admin_number = _get_admin_number()
     if admin_number:
         full_alert = (
@@ -208,7 +209,15 @@ def _notify_dashboard(wa_id: str, record: dict) -> None:
         send_message(get_text_message_input(admin_number, full_alert))
     else:
         print("[ALERT] No ADMIN_NUMBER set - full alert not sent to anyone")
-    # responder broadcast removed
+
+    # Other responders get a brief heads-up only, no personal victim details
+    responder_numbers = [n for n in _get_responder_numbers() if n != admin_number]
+    if responder_numbers:
+        brief_alert = (
+            "New emergency reported. Check the admin/dashboard for full details."
+        )
+        for number in responder_numbers:
+            send_message(get_text_message_input(number, brief_alert))
 
 
 # ---------------------------------------------------------------------------
