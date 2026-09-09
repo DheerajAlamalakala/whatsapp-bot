@@ -1,5 +1,4 @@
 
-```markdown
 # Python AI WhatsApp Bot (Disaster & Emergency Response)
 
 An intelligent, real-time WhatsApp bot built with **Python**, **Flask**, the **Meta WhatsApp Cloud API**, and **Google Gemini 2.5 Flash**.
