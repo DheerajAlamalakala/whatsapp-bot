@@ -69,8 +69,8 @@ This system implements an automated crisis triage pipeline. When an individual t
                 ▼                                                 ▼
   [ Meta Graph API Endpoint ] ◄───────────────────────────────────┘
 
-
-
+---
+---
 ---
 
 ## Key Features
