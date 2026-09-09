@@ -6,72 +6,65 @@ An intelligent, real-time WhatsApp bot built with **Python**, **Flask**, the **M
 This system implements an automated crisis triage pipeline. When an individual texts `HELP`, a finite state machine (FSM) takes over to systematically gather location coordinates, injury reports, and headcounts. Upon completion, it dispatches incident notifications across multiple channels (Admin, Responders, and Dashboard APIs) while maintaining grounded conversational AI support using Google Gemini.
 
 ---
-
-## Architecture & System Flow
-
-
-
-                         [ WhatsApp User ]
-                                 │
-                                 │ Inbound Webhook Event
-                                 ▼
-                    [ Meta WhatsApp Cloud API ]
-                                 │
-                                 │ HTTPS POST
-                                 ▼
-                      [ Flask App (run.py) ]
-                                 │
-                                 ▼
-                    [ POST /webhook (views.py) ]
-                                 │
-                                 ▼
-                      [ @signature_required ]
-                     HMAC-SHA256 vs APP_SECRET
-                                 │
-              ┌──────────────────┴──────────────────┐
-              │ Valid Signature?                    │
-              ├──────────────────┬──────────────────┤
-              │ No               │ Yes
-              ▼                  ▼
-     [ HTTP 403 Forbidden ]  [ Inbound Filter ]
-                                 │
-                                 ├─ Status Updates (sent/delivered/read) ──► HTTP 200 (Drop)
-                                 ├─ Seen Message IDs (Deduplication) ─────► Drop
-                                 └─ Valid User Message
-                                         │
-                                         ▼
-                             [ Triage State Machine ]
-                              (whatsapp_utils.py)
-                                         │
-                ┌────────────────────────┴────────────────────────┐
-                │                                                 │
- [ Standard / Idle Flow ]                             [ Emergency Flow: "HELP" ]
-                │                                                 │
-                ▼                                                 ▼
-      [ Gemini 2.5 Flash ]                              [ FSM Telemetry Intake ]
-      - Line overview                                   1. awaiting_location (GPS / PIN / Text)
-      - Informs user to send HELP                       2. awaiting_injury (yes / no / text)
-                │                                       3. awaiting_people_count (count)
-                │                                                 │
-                │                                                 ▼
-                │                                       [ Telemetry Finalized ]
-                │                                                 │
-                │                       ┌─────────────────────────┼─────────────────────────┐
-                │                       │                         │                         │
-                │                       ▼                         ▼                         ▼
-                │               [ Admin Dispatch ]      [ Responder Broadcast ]   [ Dashboard API Sync ]
-                │               - Full victim dossier   - Sanitized notification  - JSON telemetry
-                │               - Direct contact WAID   - Non-PII broadcast       - Timestamped POST
-                │               - Google Maps pin       - Directs to dashboard    - Lat / Lon / Counts
-                │                       │                         │                         │
-                │                       └─────────────────────────┼─────────────────────────┘
-                │                                                 │
-                ▼                                                 ▼
-  [ Meta Graph API Endpoint ] ◄───────────────────────────────────┘
-
----
----
----
+                              [ WhatsApp User ]
+                                     │
+                                     │ Inbound Webhook Event
+                                     ▼
+                        [ Meta WhatsApp Cloud API ]
+                                     │
+                                     │ HTTPS POST
+                                     ▼
+                          [ Flask App (run.py) ]
+                                     │
+                                     ▼
+                        [ POST /webhook (views.py) ]
+                                     │
+                                     ▼
+                          [ @signature_required ]
+                         HMAC-SHA256 vs APP_SECRET
+                                     │
+                  ┌──────────────────┴──────────────────┐
+                  │ Valid Signature?                    │
+                  ├──────────────────┬──────────────────┤
+                  │ No               │ Yes
+                  ▼                  ▼
+         [ HTTP 403 Forbidden ]  [ Inbound Filter ]
+                                     │
+                                     ├─ Status Updates (sent/delivered/read) ──► HTTP 200 (Drop)
+                                     ├─ Seen Message IDs (Deduplication) ─────► Drop
+                                     └─ Valid User Message
+                                             │
+                                             ▼
+                                 [ Message Type Router ]
+                                   (whatsapp_utils.py)
+                                             │
+               ┌─────────────────────────────┴─────────────────────────────┐
+               │                                                           │
+        [ msg_type == "text" ]                                   [ msg_type == "location" ]
+               │                                                           │
+        ┌──────┴──────────────────────┐                                    ▼
+        │                             │                         Extract lat/lon pin
+ [ "HELP" / Active Emergency ]  [ Idle / General ]                         │
+        │                             │                         Update emergency record
+        ▼                             ▼                         Prompt for injuries
+[ Hardcoded FSM Steps ]       [ Gemini 2.5 Flash ]                         │
+1. awaiting_location          (General Mode)                               ▼
+2. awaiting_injury                    │                       [ Send via Meta API ]
+3. awaiting_people_count              │
+        │                             │
+        ├─ Ongoing chat after intake? │
+        │  └─► [ Gemini 2.5 Flash ]   │
+        │      (Emergency Mode)       │
+        │             │               │
+        ▼             ▼               ▼
+ [ Telemetry Complete ]       [ Send via Meta API ]
+        │
+        ├─────────────────────────────┬─────────────────────────────┐
+        │                             │                             │
+        ▼                             ▼                             ▼
+[ External Dashboard ]        [ Admin & Responders ]         [ Victim Reply ]
+HTTP POST to                  WhatsApp alerts via            "Responders alerted..."
+DASHBOARD_API_URL             Meta Graph API                 via Meta Graph API
 
 ## Key Features
 
